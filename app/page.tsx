@@ -108,7 +108,7 @@ export default function LandingPage() {
               onBlur={() => setIsFocused(false)}
               placeholder={PLACEHOLDERS[placeholderIndex]}
               rows={1}
-              className="w-full resize-none bg-transparent px-5 pb-4 pt-5 text-sm placeholder:text-white/20 focus:outline-none sm:text-base"
+              className="w-full resize-none bg-transparent px-5 pb-4 pt-5 text-sm text-white caret-white placeholder:text-white/30 focus:text-white focus:outline-none focus:ring-0 sm:text-base"
               style={{ minHeight: 56, maxHeight: 200 }}
             />
 
@@ -555,9 +555,15 @@ export default function LandingPage() {
         </SignInButton>
       </section>
 
-      <footer className="relative z-10 border-t border-white/7 py-12 mx-auto px-6 flex flex-wrap items-center justify-center text-stone-400">
-        
-      </footer>
+      <footer className="relative z-10 mx-auto flex flex-wrap items-center justify-center border-t border-white/7 px-6 py-12 text-sm font-medium tracking-wide text-white/40">
+  <span className="mr-2 text-white/60">✦</span>
+  Crafted with vision & code by{" "}
+  <span className="ml-1 font-semibold text-white/70">Akash Kumar</span>
+  <span className="mx-3 text-white/15">·</span>
+  <span className="text-white/50">Powered by Forge</span>
+  <span className="mx-3 text-white/15">·</span>
+  <span className="text-white/35">© 2026</span>
+</footer>
     </main>
   );
 }
