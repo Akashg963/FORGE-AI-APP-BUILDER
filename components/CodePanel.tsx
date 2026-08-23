@@ -1,8 +1,11 @@
-// CodePanel.tsx
+// components/CodePanel.tsx
 /* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable react-hooks/exhaustive-deps */
+
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+
 import {
   SandpackProvider,
   SandpackLayout,
@@ -11,7 +14,9 @@ import {
   SandpackFileExplorer,
   useSandpack,
 } from "@codesandbox/sandpack-react";
+
 import { dracula } from "@codesandbox/sandpack-themes";
+
 import {
   Eye,
   Code2,
@@ -21,30 +26,41 @@ import {
   Loader2,
   ArrowUp,
 } from "lucide-react";
+
 import { RingLoader } from "react-spinners";
 import JSZip from "jszip";
+
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PricingModal } from "@/components/PricingModal";
+
 import type { FileData, StatusStep } from "@/types/workspace";
 
-// ─── Placeholder ──────────────────────────────────────────────────────────────
+// ============================================================================
+// PLACEHOLDER
+// ============================================================================
 
 const PLACEHOLDER_FILES = {
   "/App.js": {
     code: `export default function App() {
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: "#0a0a0a",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      fontFamily: "system-ui, sans-serif",
-    }}>
-      <div style={{ textAlign: "center", color: "rgba(255,255,255,0.3)" }}>
+    <div
+      style={{
+        minHeight: "100vh",
+        width: "100%",
+        background: "#0a0a0a",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: "system-ui, sans-serif",
+        color: "white",
+      }}
+    >
+      <div style={{ textAlign: "center", color: "rgba(255,255,255,0.4)" }}>
         <div style={{ fontSize: 40, marginBottom: 16 }}>⚡</div>
-        <p style={{ fontSize: 14 }}>Your app will appear here</p>
+
+        <p style={{ fontSize: 14 }}>
+          Your app will appear here
+        </p>
       </div>
     </div>
   );
@@ -52,7 +68,9 @@ const PLACEHOLDER_FILES = {
   },
 };
 
-// ─── Base dependencies ────────────────────────────────────────────────────────
+// ============================================================================
+// BASE DEPENDENCIES
+// ============================================================================
 
 const BASE_DEPENDENCIES: Record<string, string> = {
   "react-is": "latest",
@@ -76,7 +94,9 @@ const BASE_DEPENDENCIES: Record<string, string> = {
   "tailwind-merge": "latest",
 };
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ============================================================================
+// TYPES
+// ============================================================================
 
 type ActiveTab = "preview" | "code";
 
@@ -92,10 +112,9 @@ interface CodePanelProps {
   isProUser: boolean;
 }
 
-// ─── SandpackInner ────────────────────────────────────────────────────────────
-// Lives inside SandpackProvider so it can call useSandpack().
-// Receives fileData as a prop and uses updateFile() to push code changes
-// into the live Sandpack instance without remounting the provider.
+// ============================================================================
+// SANDPACK INNER
+// ============================================================================
 
 function SandpackInner({
   isGenerating,
@@ -112,7 +131,7 @@ function SandpackInner({
   isGenerating: boolean;
   statusLog: StatusStep[];
   activeTab: ActiveTab;
-  setActiveTab: (t: ActiveTab) => void;
+  setActiveTab: (tab: ActiveTab) => void;
   onImprove: (userRequest: string) => Promise<void>;
   onFixError: (error: string) => Promise<void>;
   fileData: FileData | null;
@@ -121,75 +140,159 @@ function SandpackInner({
   isProUser: boolean;
 }) {
   const { sandpack, listen } = useSandpack();
+
+  // --------------------------------------------------------------------------
+  // Local state
+  // --------------------------------------------------------------------------
+
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [improveInput, setImproveInput] = useState("");
   const [showImproveInput, setShowImproveInput] = useState(false);
+
+  // --------------------------------------------------------------------------
+  // Refs
+  // --------------------------------------------------------------------------
+
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
-  // Push file content updates into Sandpack without remounting.
-  // This runs whenever fileData changes (e.g. after improve completes).
-  // SandpackProvider key only changes when the file path set changes,
-  // so this is the safe way to update existing file contents.
-  const prevFilesRef = useRef<Record<string, { code: string }>>({});
-  useEffect(() => {
-    if (!fileData?.files) return;
-    const prev = prevFilesRef.current;
-    for (const [path, { code }] of Object.entries(fileData.files)) {
-      if (prev[path]?.code !== code) {
-        sandpack.updateFile(path, code);
-      }
-    }
-    prevFilesRef.current = fileData.files;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileData?.files]);
+  const previousFilesRef = useRef<
+    Record<string, { code: string }>
+  >({});
 
-  // Listen for Sandpack runtime errors
+  // ==========================================================================
+  // UPDATE SANDPACK FILES
+  //
+  // IMPORTANT:
+  // Dependency array has ONE fixed entry: [fileData]
+  //
+  // This avoids:
+  //
+  // "The final argument passed to useEffect changed size between renders"
+  // ==========================================================================
+
   useEffect(() => {
-    unsubscribeRef.current = listen((msg) => {
-      if (
-        msg.type === "action" &&
-        "action" in msg &&
-        msg.action === "show-error"
-      ) {
-        const errMsg =
-          "message" in msg && typeof msg.message === "string"
-            ? msg.message
-            : "An error occurred in the preview.";
-        setPreviewError(errMsg);
-        return;
-      }
-      if (msg.type === "compile") {
-        const errMsg =
-          "message" in msg && typeof msg.message === "string"
-            ? msg.message
-            : "Compile error in preview.";
-        setPreviewError(errMsg);
-        return;
-      }
-      if (msg.type === "success") {
-        setPreviewError(null);
+    const currentFiles = fileData?.files;
+
+    if (!currentFiles) {
+      return;
+    }
+
+    const previousFiles = previousFilesRef.current;
+
+    Object.entries(currentFiles).forEach(([path, file]) => {
+      const previousCode = previousFiles[path]?.code;
+
+      if (previousCode !== file.code) {
+        try {
+          sandpack.updateFile(path, file.code);
+        } catch (error) {
+          console.error(
+            `Failed to update Sandpack file: ${path}`,
+            error
+          );
+        }
       }
     });
-    return () => unsubscribeRef.current?.();
-  }, [listen]);
+
+    previousFilesRef.current = currentFiles;
+  }, [fileData]);
+
+  // ==========================================================================
+  // SANDPACK RUNTIME ERROR LISTENER
+  //
+  // Fixed dependency array: [listen]
+  // ==========================================================================
 
   useEffect(() => {
-    if (isGenerating) setPreviewError(null);
-  }, [isGenerating]);
+    const unsubscribe = listen((message) => {
+      try {
+        if (
+          message.type === "action" &&
+          "action" in message &&
+          message.action === "show-error"
+        ) {
+          const errorMessage =
+            "message" in message &&
+            typeof message.message === "string"
+              ? message.message
+              : "An error occurred in the preview.";
+
+          setPreviewError(errorMessage);
+          return;
+        }
+
+        if (message.type === "compile") {
+          const errorMessage =
+            "message" in message &&
+            typeof message.message === "string"
+              ? message.message
+              : "Compile error in preview.";
+
+          setPreviewError(errorMessage);
+          return;
+        }
+
+        if (message.type === "success") {
+          setPreviewError(null);
+        }
+      } catch (error) {
+        console.error("Sandpack listener error:", error);
+      }
+    });
+
+    unsubscribeRef.current = unsubscribe;
+
+    return () => {
+      unsubscribe?.();
+      unsubscribeRef.current = null;
+    };
+  }, [listen]);
+
+  // ==========================================================================
+  // CLEAR PREVIEW ERRORS
+  //
+  // Fixed dependency array: [isGenerating, isImproving]
+  // ==========================================================================
+
+  useEffect(() => {
+    if (isGenerating || isImproving) {
+      setPreviewError(null);
+    }
+  }, [isGenerating, isImproving]);
+
+  // ==========================================================================
+  // IMPROVE SUBMIT
+  // ==========================================================================
 
   const handleImproveSubmit = async () => {
     const trimmed = improveInput.trim();
-    if (!trimmed || isImproving) return;
+
+    if (!trimmed || isImproving) {
+      return;
+    }
+
     setImproveInput("");
     setShowImproveInput(false);
-    await onImprove(trimmed);
+
+    try {
+      await onImprove(trimmed);
+    } catch (error) {
+      console.error("Improve request failed:", error);
+    }
   };
 
-  // ── Export to ZIP ──────────────────────────────────────────────────────────
+  // ==========================================================================
+  // EXPORT PROJECT
+  // ==========================================================================
+
   const handleExportZip = async () => {
-    if (isExporting) return;
+    if (isExporting) {
+      return;
+    }
+
     setIsExporting(true);
+
     try {
       const filesToZip =
         Object.keys(sandpack.files).length > 0
@@ -203,26 +306,48 @@ function SandpackInner({
 
       const zip = new JSZip();
 
+      // ----------------------------------------------------------------------
+      // package.json
+      // ----------------------------------------------------------------------
+
       const packageJson = {
         name: "forge-app",
         version: "1.0.0",
         private: true,
+
         dependencies: {
           react: "^18.2.0",
           "react-dom": "^18.2.0",
           "react-scripts": "5.0.1",
           ...dependencies,
         },
+
         scripts: {
           start: "react-scripts start",
           build: "react-scripts build",
         },
+
         browserslist: {
-          production: [">0.2%", "not dead", "not op_mini all"],
-          development: ["last 1 chrome version"],
+          production: [
+            ">0.2%",
+            "not dead",
+            "not op_mini all",
+          ],
+
+          development: [
+            "last 1 chrome version",
+          ],
         },
       };
-      zip.file("package.json", JSON.stringify(packageJson, null, 2));
+
+      zip.file(
+        "package.json",
+        JSON.stringify(packageJson, null, 2)
+      );
+
+      // ----------------------------------------------------------------------
+      // public/index.html
+      // ----------------------------------------------------------------------
 
       zip.file(
         "public/index.html",
@@ -230,110 +355,232 @@ function SandpackInner({
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1"
+    />
     <title>Forge App</title>
+
     <script src="https://cdn.tailwindcss.com"></script>
   </head>
+
   <body>
     <div id="root"></div>
   </body>
 </html>`
       );
 
-      for (const [filePath, fileObj] of Object.entries(filesToZip)) {
+      // ----------------------------------------------------------------------
+      // Project files
+      // ----------------------------------------------------------------------
+
+      for (const [filePath, fileObj] of Object.entries(
+        filesToZip
+      )) {
         const code =
-          typeof fileObj === "object" && fileObj !== null && "code" in fileObj
+          typeof fileObj === "object" &&
+          fileObj !== null &&
+          "code" in fileObj
             ? (fileObj as { code: string }).code
             : "";
-        const zipPath = filePath.startsWith("/")
-          ? `src${filePath}`
-          : `src/${filePath}`;
+
+        const normalizedPath = filePath.startsWith("/")
+          ? filePath.slice(1)
+          : filePath;
+
+        const zipPath = normalizedPath.startsWith("src/")
+          ? normalizedPath
+          : `src/${normalizedPath}`;
+
         zip.file(zipPath, code);
       }
 
+      // ----------------------------------------------------------------------
+      // src/index.js
+      // ----------------------------------------------------------------------
+
       zip.file(
         "src/index.js",
-        `import React from 'react';
-import ReactDOM from 'react-dom/client';
-import App from './App';
+        `import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(<React.StrictMode><App /></React.StrictMode>);`
+const rootElement = document.getElementById("root");
+
+if (!rootElement) {
+  throw new Error("Root element not found");
+}
+
+const root = ReactDOM.createRoot(rootElement);
+
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);`
       );
+
+      // ----------------------------------------------------------------------
+      // README
+      // ----------------------------------------------------------------------
 
       zip.file(
         "README.md",
-        `# Forge App\n\nGenerated with [Forge](https://forge.app).\n\n## Getting started\n\n\`\`\`bash\nnpm install\nnpm start\n\`\`\``
+        `# Forge App
+
+Generated with Forge.
+
+## Getting Started
+
+\`\`\`bash
+npm install
+npm start
+\`\`\`
+`
       );
 
-      const blob = await zip.generateAsync({ type: "blob" });
+      // ----------------------------------------------------------------------
+      // Download
+      // ----------------------------------------------------------------------
+
+      const blob = await zip.generateAsync({
+        type: "blob",
+      });
+
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
+
+      const anchor = document.createElement("a");
+
+      anchor.href = url;
+
       const zipName = appTitle
         ? `${appTitle
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, "-")
             .replace(/^-|-$/g, "")}.zip`
         : "forge-app.zip";
-      a.download = zipName;
-      a.click();
+
+      anchor.download = zipName;
+
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+
       URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("Export failed:", err);
+    } catch (error) {
+      console.error("Export failed:", error);
     } finally {
       setIsExporting(false);
     }
   };
 
+  // ==========================================================================
+  // CURRENT STATUS
+  // ==========================================================================
+
   const currentStepLabel =
-    statusLog[statusLog.length - 1]?.label ?? "Generating…";
+    statusLog.length > 0
+      ? statusLog[statusLog.length - 1]?.label
+      : "Generating…";
+
+  // ==========================================================================
+  // RENDER
+  // ==========================================================================
 
   return (
-    <Tabs
-      value={activeTab}
-      onValueChange={(v) => setActiveTab(v as ActiveTab)}
-      className="flex h-full flex-col gap-0"
+    <div
+      className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden"
+      style={{
+        width: "100%",
+        height: "100%",
+        minWidth: 0,
+        minHeight: 0,
+      }}
     >
-      {/* Tabs + Actions bar */}
-      <div className="flex items-center justify-between border-b border-white/6 px-2">
-        <TabsList
-          variant="line"
-          className="h-auto gap-0 rounded-none bg-transparent p-0"
-        >
-          <TabsTrigger className="border-b-2 pt-2" value="code">
-            <Code2 className="h-3.5 w-3.5" />
+      {/* ================================================================== */}
+      {/* TABS + ACTIONS                                                     */}
+      {/* ================================================================== */}
+
+      <div
+        className="flex w-full shrink-0 items-center justify-between border-b border-white/6 px-2"
+        style={{
+          width: "100%",
+          minWidth: 0,
+          height: "48px",
+        }}
+      >
+        {/* ---------------------------------------------------------------- */}
+        {/* Tabs                                                             */}
+        {/* ---------------------------------------------------------------- */}
+
+        <div className="flex h-full items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab("code")}
+            className={`flex h-full items-center gap-2 px-4 text-sm font-medium transition-all ${
+              activeTab === "code"
+                ? "border-b-2 border-blue-400 text-white"
+                : "border-b-2 border-transparent text-white/50 hover:text-white"
+            }`}
+          >
+            <Code2 className="h-4 w-4" />
             Code
-          </TabsTrigger>
-          <TabsTrigger className="border-b-2 pt-2" value="preview">
-            <Eye className="h-3.5 w-3.5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("preview")}
+            className={`flex h-full items-center gap-2 px-4 text-sm font-medium transition-all ${
+              activeTab === "preview"
+                ? "border-b-2 border-blue-400 text-white"
+                : "border-b-2 border-transparent text-white/50 hover:text-white"
+            }`}
+          >
+            <Eye className="h-4 w-4" />
             Preview
-          </TabsTrigger>
-        </TabsList>
+          </button>
+        </div>
+
+        {/* ---------------------------------------------------------------- */}
+        {/* Actions                                                          */}
+        {/* ---------------------------------------------------------------- */}
 
         <div className="flex items-center gap-1.5">
-          {/* ── Improve button ── */}
+          {/* Improve button */}
+
           {isProUser ? (
             showImproveInput ? (
               <div className="flex items-center gap-1.5">
                 <div className="relative flex items-center">
                   <Bot className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-violet-400" />
+
                   <input
                     autoFocus
                     value={improveInput}
-                    onChange={(e) => setImproveInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleImproveSubmit();
-                      if (e.key === "Escape") setShowImproveInput(false);
+                    onChange={(event) =>
+                      setImproveInput(event.target.value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        void handleImproveSubmit();
+                      }
+
+                      if (event.key === "Escape") {
+                        setShowImproveInput(false);
+                      }
                     }}
                     placeholder="What should I improve?"
-                    className="h-7 w-56 rounded-md border border-violet-500/30 bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-cyan-500/10 pl-8 pr-3 text-xs text-white/80 placeholder:text-white/30 focus:border-violet-400/50 focus:outline-none focus:shadow-[0_0_10px_rgba(139,92,246,0.2)]"
+                    className="h-7 w-56 rounded-md border border-violet-500/30 bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-cyan-500/10 pl-8 pr-3 text-xs text-white/80 placeholder:text-white/30 focus:border-violet-400/50 focus:outline-none"
                   />
                 </div>
+
                 <button
-                  onClick={handleImproveSubmit}
-                  disabled={!improveInput.trim() || isImproving}
-                  className="group relative flex h-7 w-7 items-center justify-center overflow-hidden rounded-md border border-violet-500/30 bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 text-violet-300 transition-all duration-200 hover:border-violet-400/50 hover:from-violet-500/30 hover:to-fuchsia-500/30 hover:shadow-[0_0_10px_rgba(139,92,246,0.3)] disabled:cursor-not-allowed disabled:opacity-40"
+                  type="button"
+                  onClick={() => void handleImproveSubmit()}
+                  disabled={
+                    !improveInput.trim() || isImproving
+                  }
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-violet-500/30 bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 text-violet-300 transition-all hover:border-violet-400/50 hover:from-violet-500/30 hover:to-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {isImproving ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
@@ -344,19 +591,25 @@ root.render(<React.StrictMode><App /></React.StrictMode>);`
               </div>
             ) : (
               <button
+                type="button"
                 onClick={() => setShowImproveInput(true)}
                 disabled={isImproving || !fileData}
-                className="group relative flex h-7 cursor-pointer items-center gap-1.5 overflow-hidden rounded-md border border-white/10 bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-cyan-500/10 px-2.5 text-xs font-medium transition-all duration-300 hover:border-white/20 hover:from-violet-500/20 hover:via-fuchsia-500/20 hover:to-cyan-500/20 hover:shadow-[0_0_12px_rgba(139,92,246,0.3)] disabled:cursor-not-allowed disabled:opacity-40"
+                className="group relative flex h-7 cursor-pointer items-center gap-1.5 overflow-hidden rounded-md border border-white/10 bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-cyan-500/10 px-2.5 text-xs font-medium transition-all hover:border-white/20 hover:from-violet-500/20 hover:via-fuchsia-500/20 hover:to-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <span className="pointer-events-none absolute inset-0 -translate-x-full animate-[shimmer_2.5s_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+
                 {isImproving ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-400" />
                 ) : (
-                  <Bot className="h-3.5 w-3.5 text-violet-400 transition-colors group-hover:text-violet-300" />
+                  <Bot className="h-3.5 w-3.5 text-violet-400" />
                 )}
+
                 <span className="bg-gradient-to-r from-violet-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
-                  {isImproving ? "Improving…" : "Improve with Agent"}
+                  {isImproving
+                    ? "Improving…"
+                    : "Improve with Agent"}
                 </span>
+
                 {!isImproving && (
                   <span className="rounded-sm bg-violet-500/30 px-1 py-0.5 text-[10px] font-semibold leading-none text-violet-300">
                     PRO
@@ -366,12 +619,15 @@ root.render(<React.StrictMode><App /></React.StrictMode>);`
             )
           ) : (
             <PricingModal reason="upgrade">
-              <span className="group relative flex h-7 cursor-pointer items-center gap-1.5 overflow-hidden rounded-md border border-white/10 bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-cyan-500/10 px-2.5 text-xs font-medium text-white/60 transition-all duration-300 hover:border-white/20 hover:from-violet-500/20 hover:via-fuchsia-500/20 hover:to-cyan-500/20 hover:text-white/90 hover:shadow-[0_0_12px_rgba(139,92,246,0.3)]">
+              <span className="group relative flex h-7 cursor-pointer items-center gap-1.5 overflow-hidden rounded-md border border-white/10 bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-cyan-500/10 px-2.5 text-xs font-medium text-white/60 transition-all hover:border-white/20 hover:text-white/90">
                 <span className="pointer-events-none absolute inset-0 -translate-x-full animate-[shimmer_2.5s_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-                <Bot className="h-3.5 w-3.5 text-violet-400 transition-colors group-hover:text-violet-300" />
+
+                <Bot className="h-3.5 w-3.5 text-violet-400" />
+
                 <span className="bg-gradient-to-r from-violet-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
                   Improve with Agent
                 </span>
+
                 <span className="rounded-sm bg-violet-500/30 px-1 py-0.5 text-[10px] font-semibold leading-none text-violet-300">
                   PRO
                 </span>
@@ -379,9 +635,11 @@ root.render(<React.StrictMode><App /></React.StrictMode>);`
             </PricingModal>
           )}
 
+          {/* Download */}
+
           <Button
             variant="ghost"
-            onClick={handleExportZip}
+            onClick={() => void handleExportZip()}
             disabled={isExporting || !fileData}
           >
             {isExporting ? (
@@ -389,20 +647,44 @@ root.render(<React.StrictMode><App /></React.StrictMode>);`
             ) : (
               <Download className="h-3.5 w-3.5" />
             )}
+
             Download
           </Button>
         </div>
       </div>
 
-      {/* Content area */}
-      <div className="relative flex-1 overflow-hidden h-full">
+      {/* ================================================================== */}
+      {/* CONTENT AREA                                                       */}
+      {/* ================================================================== */}
+
+      <div
+        className="relative flex-1 min-h-0 min-w-0 overflow-hidden"
+        style={{
+          width: "100%",
+          height: "calc(100% - 48px)",
+          minWidth: 0,
+          minHeight: 0,
+        }}
+      >
+        {/* ---------------------------------------------------------------- */}
+        {/* Generation / improvement overlay                                */}
+        {/* ---------------------------------------------------------------- */}
+
         {(isGenerating || isImproving) && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 bg-[#0a0a0a]/85 backdrop-blur-sm">
-            <RingLoader color="#60a5fa" size={64} speedMultiplier={0.8} />
+          <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center gap-6 bg-[#0a0a0a]/85 backdrop-blur-sm">
+            <RingLoader
+              color="#60a5fa"
+              size={64}
+              speedMultiplier={0.8}
+            />
+
             <div className="flex flex-col items-center gap-1.5">
               <p className="text-sm font-medium text-white/60">
-                {isImproving ? "Improving with Cline AI…" : currentStepLabel}
+                {isImproving
+                  ? "Improving with Cline AI…"
+                  : currentStepLabel}
               </p>
+
               <p className="text-xs text-white/20">
                 This usually takes 10–20 seconds
               </p>
@@ -410,67 +692,335 @@ root.render(<React.StrictMode><App /></React.StrictMode>);`
           </div>
         )}
 
-        <SandpackLayout
-          style={{
-            height: "100vh",
-            border: "none",
-            borderRadius: 0,
-            background: "transparent",
-          }}
-        >
-          <TabsContent
-            value="preview"
-            keepMounted
-            className="mt-0 h-full w-full"
-          >
-            <SandpackPreview
-              style={{ height: "89%" }}
-              showOpenInCodeSandbox={false}
-            />
-          </TabsContent>
+        {/* ================================================================== */}
+        {/* SANDPACK                                                          */}
+        {/* ================================================================== */}
 
-          <TabsContent
-            value="code"
-            keepMounted
-            className="mt-0 flex h-full w-full"
-          >
-            <SandpackFileExplorer
-              style={{
-                height: "90%",
-                width: "180px",
-                borderRight: "0.5px solid rgba(255,255,255,0.08)",
-              }}
-            />
-            <SandpackCodeEditor
-              style={{ height: "90%", flex: 1 }}
-              showTabs
-              showLineNumbers
-              showInlineErrors
-              closableTabs
-              readOnly
-            />
-          </TabsContent>
-        </SandpackLayout>
+        <SandpackLayout
+  className="sandpack-workspace-layout"
+  style={{
+    // your existing styles...
+  }}
+>
+  <>
+    {/* ============================================================ */}
+    {/* PREVIEW                                                      */}
+    {/* ============================================================ */}
+
+    <div
+      className="sandpack-preview-wrapper"
+      style={{
+        display: activeTab === "preview" ? "flex" : "none",
+
+        flex: "1 1 100%",
+
+        width: "100%",
+        height: "100%",
+
+        minWidth: 0,
+        minHeight: 0,
+
+        maxWidth: "none",
+        maxHeight: "none",
+
+        overflow: "hidden",
+
+        margin: 0,
+        padding: 0,
+      }}
+    >
+      <SandpackPreview
+        showOpenInCodeSandbox={false}
+        style={{
+          display: "flex",
+          flex: "1 1 auto",
+
+          width: "100%",
+          height: "100%",
+
+          minWidth: 0,
+          minHeight: 0,
+
+          maxWidth: "none",
+          maxHeight: "none",
+
+          margin: 0,
+          padding: 0,
+
+          overflow: "hidden",
+
+          background: "#ffffff",
+        }}
+      />
+    </div>
+
+    {/* ============================================================ */}
+    {/* CODE                                                         */}
+    {/* ============================================================ */}
+
+    <div
+      className="sandpack-code-wrapper"
+      style={{
+        display: activeTab === "code" ? "flex" : "none",
+
+        flexDirection: "row",
+
+        flex: "1 1 100%",
+
+        width: "100%",
+        height: "100%",
+
+        minWidth: 0,
+        minHeight: 0,
+
+        maxWidth: "none",
+        maxHeight: "none",
+
+        overflow: "hidden",
+
+        margin: 0,
+        padding: 0,
+      }}
+    >
+      {/* Your existing File Explorer */}
+      <div
+        style={{
+          display: "flex",
+          flex: "0 0 180px",
+          width: "180px",
+          minWidth: "180px",
+          maxWidth: "180px",
+          height: "100%",
+          minHeight: 0,
+          overflow: "hidden",
+          borderRight: "0.5px solid rgba(255,255,255,0.08)",
+        }}
+      >
+        <SandpackFileExplorer
+          style={{
+            width: "100%",
+            height: "100%",
+            minWidth: 0,
+            minHeight: 0,
+            maxWidth: "none",
+            overflow: "auto",
+          }}
+        />
       </div>
 
-      {/* Preview error banner — uses onFixError (Gemini), not onImprove (Cline) */}
+      {/* Your existing Code Editor */}
+      <div
+        style={{
+          display: "flex",
+          flex: "1 1 auto",
+          width: "calc(100% - 180px)",
+          minWidth: 0,
+          minHeight: 0,
+          height: "100%",
+          overflow: "hidden",
+        }}
+      >
+        <SandpackCodeEditor
+          style={{
+            display: "flex",
+            flex: "1 1 auto",
+            width: "100%",
+            height: "100%",
+            minWidth: 0,
+            minHeight: 0,
+            maxWidth: "none",
+            maxHeight: "none",
+            overflow: "auto",
+          }}
+          showTabs
+          showLineNumbers
+          showInlineErrors
+          closableTabs
+          readOnly
+        />
+      </div>
+    </div>
+  </>
+</SandpackLayout>
+
+        {/* ================================================================== */}
+        {/* SANDPACK SIZE OVERRIDES                                            */}
+        {/* ================================================================== */}
+
+        <style jsx global>{`
+          /*
+           * Force Sandpack's own generated layout classes to use the
+           * complete available workspace.
+           */
+
+          .sandpack-workspace-layout {
+            width: 100% !important;
+            height: 100% !important;
+
+            min-width: 0 !important;
+            min-height: 0 !important;
+
+            max-width: none !important;
+            max-height: none !important;
+
+            margin: 0 !important;
+            padding: 0 !important;
+
+            overflow: hidden !important;
+          }
+
+          .sandpack-workspace-layout.sp-layout {
+            width: 100% !important;
+            height: 100% !important;
+
+            min-width: 0 !important;
+            min-height: 0 !important;
+
+            max-width: none !important;
+            max-height: none !important;
+
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+          }
+
+          /*
+           * Preview
+           */
+
+          .sandpack-workspace-layout
+            .sandpack-preview-wrapper {
+            width: 100% !important;
+            height: 100% !important;
+
+            min-width: 0 !important;
+            min-height: 0 !important;
+
+            max-width: none !important;
+            max-height: none !important;
+
+            flex: 1 1 100% !important;
+
+            overflow: hidden !important;
+          }
+
+          .sandpack-workspace-layout
+            .sp-preview {
+            width: 100% !important;
+            height: 100% !important;
+
+            min-width: 0 !important;
+            min-height: 0 !important;
+
+            max-width: none !important;
+            max-height: none !important;
+
+            flex: 1 1 auto !important;
+          }
+
+          .sandpack-workspace-layout
+            .sp-preview-container {
+            width: 100% !important;
+            height: 100% !important;
+
+            min-width: 0 !important;
+            min-height: 0 !important;
+
+            max-width: none !important;
+            max-height: none !important;
+
+            flex: 1 1 auto !important;
+
+            overflow: hidden !important;
+          }
+
+          .sandpack-workspace-layout
+            iframe.sp-preview-iframe {
+            display: block !important;
+
+            width: 100% !important;
+            height: 100% !important;
+
+            min-width: 0 !important;
+            min-height: 0 !important;
+
+            max-width: none !important;
+            max-height: none !important;
+
+            border: 0 !important;
+          }
+
+          /*
+           * Code mode
+           */
+
+          .sandpack-workspace-layout
+            .sandpack-code-wrapper {
+            width: 100% !important;
+            height: 100% !important;
+
+            min-width: 0 !important;
+            min-height: 0 !important;
+
+            flex: 1 1 100% !important;
+
+            overflow: hidden !important;
+          }
+
+          .sandpack-workspace-layout
+            .sp-file-explorer {
+            min-width: 0 !important;
+            height: 100% !important;
+          }
+
+          .sandpack-workspace-layout
+            .sp-code-editor {
+            width: 100% !important;
+            height: 100% !important;
+
+            min-width: 0 !important;
+            min-height: 0 !important;
+
+            max-width: none !important;
+            max-height: none !important;
+
+            flex: 1 1 auto !important;
+          }
+
+          .sandpack-workspace-layout
+            .sp-stack {
+            min-width: 0 !important;
+            min-height: 0 !important;
+          }
+        `}</style>
+      </div>
+
+      {/* ================================================================== */}
+      {/* PREVIEW ERROR                                                      */}
+      {/* ================================================================== */}
+
       {previewError &&
         !isGenerating &&
         !isImproving &&
         activeTab === "preview" && (
-          <div className="absolute inset-x-0 -bottom-3 z-20 border-t border-red-500/20 bg-red-950/99 p-4 pb-6">
+          <div className="absolute inset-x-0 bottom-0 z-[110] border-t border-red-500/20 bg-red-950/95 p-4">
             <div className="flex items-center gap-2.5">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400/70" />
+
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-medium text-red-400/80">
                   Preview error
                 </p>
+
                 <p className="break-all text-[11px] text-red-300/50">
                   {previewError}
                 </p>
               </div>
+
               <Button
-                onClick={() => onFixError(previewError)}
+                onClick={() =>
+                  void onFixError(previewError)
+                }
                 variant="destructive"
               >
                 <Bot className="h-3 w-3" />
@@ -479,11 +1029,13 @@ root.render(<React.StrictMode><App /></React.StrictMode>);`
             </div>
           </div>
         )}
-    </Tabs>
+    </div>
   );
 }
 
-// ─── CodePanel (outer) ────────────────────────────────────────────────────────
+// ============================================================================
+// CODE PANEL
+// ============================================================================
 
 export function CodePanel({
   fileData,
@@ -496,35 +1048,89 @@ export function CodePanel({
   isImproving,
   isProUser,
 }: CodePanelProps) {
-  const [activeTab, setActiveTab] = useState<ActiveTab>("preview");
+  // --------------------------------------------------------------------------
+  // Active tab
+  // --------------------------------------------------------------------------
+
+  const [activeTab, setActiveTab] =
+    useState<ActiveTab>("preview");
+
+  // --------------------------------------------------------------------------
+  // Automatically open Preview after a new project is generated.
+  //
+  // IMPORTANT:
+  // Dependency array has ONE fixed entry.
+  // --------------------------------------------------------------------------
 
   useEffect(() => {
-    if (fileData) setActiveTab("preview");
+    if (fileData) {
+      setActiveTab("preview");
+    }
   }, [fileData]);
 
-  const files = fileData?.files ?? PLACEHOLDER_FILES;
+  // --------------------------------------------------------------------------
+  // Files
+  // --------------------------------------------------------------------------
+
+  const files =
+    fileData?.files ?? PLACEHOLDER_FILES;
+
+  // --------------------------------------------------------------------------
+  // Dependencies
+  // --------------------------------------------------------------------------
+
   const dependencies = {
     ...BASE_DEPENDENCIES,
     ...(fileData?.dependencies ?? {}),
   };
 
-  // Key only on file path set — NOT on file contents.
-  // Content changes go through sandpack.updateFile() inside SandpackInner.
-  // This prevents Sandpack from remounting when only code changes.
-  const filePathKey = Object.keys(files).sort().join("|");
+  // --------------------------------------------------------------------------
+  // IMPORTANT:
+  //
+  // Provider is remounted ONLY when the file PATHS change.
+  //
+  // It is NOT remounted when file contents change.
+  // --------------------------------------------------------------------------
+
+  const filePathKey = Object.keys(files)
+    .sort()
+    .join("|");
+
+  // ==========================================================================
+  // RENDER
+  // ==========================================================================
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div
+      className="flex h-full w-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+      style={{
+        width: "100%",
+        height: "100%",
+        minWidth: 0,
+        minHeight: 0,
+      }}
+    >
       <SandpackProvider
         key={filePathKey}
         template="react"
         theme={dracula}
         files={files}
-        customSetup={{ dependencies }}
+        customSetup={{
+          dependencies,
+        }}
         options={{
-          externalResources: ["https://cdn.tailwindcss.com"],
+          externalResources: [
+            "https://cdn.tailwindcss.com",
+          ],
+
           recompileMode: "delayed",
           recompileDelay: 500,
+        }}
+        style={{
+          width: "100%",
+          height: "100%",
+          minWidth: 0,
+          minHeight: 0,
         }}
       >
         <SandpackInner
